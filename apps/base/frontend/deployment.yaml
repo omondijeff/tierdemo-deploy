@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app.kubernetes.io/name: frontend
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+    spec:
+      containers:
+        - name: tierdemo
+          image: python:3.12-slim-bookworm
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: POSTGRES_HOST
+              value: postgres.database.svc.cluster.local
+            - name: REDIS_HOST
+              value: redis.redis.svc.cluster.local
+          envFrom:
+            - secretRef:
+                name: frontend-tier-secrets
+          command:
+            - sh
+            - -ec
+            - |
+              pip install --no-cache-dir -q "flask>=3.0,<4" "redis>=5,<6" "psycopg2-binary>=2.9,<3"
+              exec python /app/tierdemo.py
+          volumeMounts:
+            - name: app
+              mountPath: /app/tierdemo.py
+              subPath: tierdemo.py
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "384Mi"
+            limits:
+              cpu: "1"
+              memory: "768Mi"
+      volumes:
+        - name: app
+          configMap:
+            name: tierdemo-script
+            defaultMode: 0444
